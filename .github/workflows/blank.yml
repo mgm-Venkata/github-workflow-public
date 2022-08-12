@@ -1,0 +1,118 @@
+name: Git Version
+
+on:
+  workflow_call:
+    inputs:
+      release-branch:
+        required: true
+        type: string
+      dev-branch:  
+        required: true
+        type: string
+# on: [ push ]
+
+jobs:
+  git-version:
+    runs-on: ubuntu-latest
+    outputs:
+        version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.head_ref }}   # checkout the correct branch name
+          fetch-depth: 0                # fetch the whole repo history
+
+      - name: Git Version
+        id: version
+        uses: codacy/git-version@2.5.4
+        with:
+          release-branch: ${{inputs.release-branch}}
+          dev-branch: ${{inputs.dev-branch}}
+      - name: Extract branch name
+        shell: bash
+        run: echo "##[set-output name=branch;]$(echo ${GITHUB_REF#refs/heads/})"
+        id: extract_branch
+  tag-repo:
+    name: Apply Tag
+    runs-on: ubuntu-latest
+    needs: [git-version]
+    if: success() && github.ref == 'refs/heads/${{needs.git-version.outputs.extract_branch}}' 
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.head_ref }}   # checkout the correct branch name
+          fetch-depth: 0  
+      - name: Tap
+        uses: actions/github-script@v5
+        with:
+          script: |
+            github.rest.git.createRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: 'refs/tags/${{needs.git-version.outputs.version}}',
+              sha: context.sha
+            })
+  set-major-tag:  
+    runs-on: ubuntu-latest
+    needs: [git-version]
+    if: success() && github.ref == 'refs/heads/main' 
+    steps:
+     - name: Checkout Code
+       uses: actions/checkout@v2
+       with:
+          ref: ${{ github.head_ref }}   # checkout the correct branch name
+          fetch-depth: 0
+     - name: Set Tag Output
+       id: set-tag
+       run: echo "::set-output name=tag_name::$(echo ${{needs.git-version.outputs.version}} | awk -F. '{printf "%d.x\n", $1,$2}')"
+     - uses: dev-drprasad/delete-tag-and-release@v0.2.0
+       with:
+         tag_name: ${{ steps.set-tag.outputs.tag_name }}
+       env:
+         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+     - name: Create Tag
+       uses: actions/github-script@v3
+       env:
+          TAG: ${{ steps.set-tag.outputs.tag_name }}
+       with:
+          github-token: ${{ github.token }}
+          script: |
+            github.git.createRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+             ref: "refs/tags/${{ steps.set-tag.outputs.tag_name }}",
+              sha: context.sha
+            })
+  set-minor-tag:  
+    runs-on: ubuntu-latest
+    needs: [git-version]
+    if: success() && github.ref == 'refs/heads/main' 
+    steps:
+     - name: Checkout Code
+       uses: actions/checkout@v2
+       with:
+          ref: ${{ github.head_ref }}   # checkout the correct branch name
+          fetch-depth: 0
+     - name: Set Tag Output
+       id: set-tag
+       run: echo "::set-output name=tag_name::$(echo ${{needs.git-version.outputs.version}} | awk -F. '{printf "%d.%d.x\n", $1,$2,$3}')"
+     - uses: dev-drprasad/delete-tag-and-release@v0.2.0
+       with:
+         tag_name: ${{ steps.set-tag.outputs.tag_name }}
+       env:
+         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+     - name: Create Tag
+       uses: actions/github-script@v3
+       env:
+          TAG: ${{ steps.set-tag.outputs.tag_name }}
+       with:
+          github-token: ${{ github.token }}
+          script: |
+            github.git.createRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+             ref: "refs/tags/${{ steps.set-tag.outputs.tag_name }}",
+              sha: context.sha
+            })
